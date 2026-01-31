@@ -12,9 +12,9 @@ from typing import Union
 
 import numpy as np
 import pandas as pd
-import rpy2.robjects as robjects
-import rpy2.robjects.packages as rpackages
 from scipy.stats import linregress
+
+# rpy2 is imported lazily in Bcp class to make R dependency optional
 
 import epylabel.wavefinder as wf
 from epylabel.metrics import summary
@@ -292,7 +292,24 @@ class Bcp(Transformation):
         :type p0: float
         :param thresh: Threshold value for the transformation.
         :type thresh: float
+
+        :raises ImportError: If rpy2 is not installed or R is not available.
         """
+        # Lazy import of rpy2 to make R dependency optional
+        try:
+            import rpy2.robjects as robjects
+            import rpy2.robjects.packages as rpackages
+        except ImportError as e:
+            raise ImportError(
+                "The Bcp algorithm requires rpy2 and R to be installed. "
+                "Please install R (https://www.r-project.org/) and then run: "
+                "pip install rpy2\n"
+                "Alternatively, use Python-only algorithms like Shapelet or WaveFinder."
+            ) from e
+
+        self._robjects = robjects
+        self._rpackages = rpackages
+
         try:
             self.bcp = rpackages.importr("bcp")
         except rpackages.PackageNotInstalledError:
@@ -315,7 +332,7 @@ class Bcp(Transformation):
         :return: Array of detected changepoints.
         :rtype: np.ndarray
         """
-        x_r = robjects.FloatVector(x.values)
+        x_r = self._robjects.FloatVector(x.values)
         out = self.bcp.bcp(x_r, d=d, p0=p0)
         return np.array(out.rx2["posterior.mean"]).flatten()
 
