@@ -268,7 +268,7 @@ class TestBcpGoldenMaster:
 class TestExponentialGrowthGoldenMaster:
     """Golden master tests for ExponentialGrowth."""
 
-    PARAMS = {"n_days": 7, "p_thresh": 0.05, "slope_thresh": 0}
+    PARAMS = {"n_days": 7, "thresh": 0.05}
     TOLERANCE = 0.0
 
     @pytest.fixture

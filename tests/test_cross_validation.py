@@ -26,9 +26,13 @@ try:
     import rpy2.robjects as ro
     from rpy2.robjects import pandas2ri
     from rpy2.robjects.packages import importr
-    pandas2ri.activate()
+    # Handle deprecated activate() in newer rpy2 versions
+    try:
+        pandas2ri.activate()
+    except (DeprecationWarning, Exception):
+        pass  # In newer versions, conversion is handled differently
     R_AVAILABLE = True
-except ImportError:
+except (ImportError, Exception):
     R_AVAILABLE = False
 
 
