@@ -1,0 +1,20 @@
+{
+  "algorithm": "shapelet",
+  "dataset": "shapelet_test_cases",
+  "params": {
+    "n_days": 7,
+    "x_max": 3,
+    "thresh": 0.8
+  },
+  "generated_at": "2026-02-01T03:18:24.467871",
+  "shape": [
+    150,
+    4
+  ],
+  "columns": [
+    "0",
+    "1",
+    "2",
+    "3"
+  ]
+}

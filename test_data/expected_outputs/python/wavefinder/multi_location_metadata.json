@@ -1,0 +1,26 @@
+{
+  "algorithm": "wavefinder",
+  "dataset": "multi_location",
+  "params": {
+    "abs_prominence_threshold": 5,
+    "prominence_height_threshold": 0.01,
+    "t_sep_a": 35
+  },
+  "generated_at": "2026-02-01T03:18:28.745682",
+  "shape": [
+    200,
+    10
+  ],
+  "columns": [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "algorithm": "wavefinder",
+  "dataset": "noisy",
+  "params": {
+    "abs_prominence_threshold": 5,
+    "prominence_height_threshold": 0.01,
+    "t_sep_a": 35
+  },
+  "generated_at": "2026-02-01T03:18:30.574715",
+  "shape": [
+    300,
+    1
+  ],
+  "columns": [
+    "0"
+  ]
+}
