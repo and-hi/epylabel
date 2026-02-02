@@ -73,8 +73,12 @@ def check_dependencies():
             print(f"  ✗ R bcp package - ERROR: {e}")
             errors.append("R bcp package")
     except ImportError:
-        print("  ✗ rpy2 - MISSING")
+        print("  ✗ rpy2 - MISSING (pip install rpy2)")
         errors.append("rpy2")
+    except (RuntimeError, ValueError, OSError) as e:
+        # rpy2 is installed but R is missing or misconfigured
+        print(f"  ✗ rpy2/R - ERROR: {e}")
+        errors.append("R (rpy2 installed but R not found or misconfigured)")
 
     # Check geopandas
     try:

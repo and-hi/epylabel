@@ -306,6 +306,13 @@ class Bcp(Transformation):
                 "pip install rpy2\n"
                 "Alternatively, use Python-only algorithms like Shapelet or WaveFinder."
             ) from e
+        except (RuntimeError, ValueError, OSError) as e:
+            # rpy2 is installed but R is missing or misconfigured
+            raise RuntimeError(
+                f"rpy2 is installed but R is not available or misconfigured: {e}\n"
+                "Please install R (https://www.r-project.org/) and ensure it's in your PATH.\n"
+                "Alternatively, use Python-only algorithms like Shapelet or WaveFinder."
+            ) from e
 
         self._robjects = robjects
         self._rpackages = rpackages
