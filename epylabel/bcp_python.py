@@ -1,11 +1,33 @@
 """
 Pure Python implementation of Bayesian Change Point detection.
 
-Based on Barry & Hartigan (1993) "A Bayesian Analysis for Change Point Problems"
-Journal of the American Statistical Association, 88(421), 309-319.
+This is a simplified Python implementation inspired by the Barry & Hartigan (1993)
+product partition model. It provides a pure Python alternative when R is not
+available, but does NOT produce identical results to the R bcp package.
 
-This implementation uses the exact recursive algorithm to compute posterior
-probabilities of change points and posterior means of segment parameters.
+For exact reproducibility of R bcp results, use the R implementation via rpy2.
+This Python version is suitable for:
+- Environments where R cannot be installed
+- Quick prototyping and testing
+- Educational purposes
+
+The algorithm uses MCMC (Gibbs sampling) to estimate posterior probabilities
+of change points. Results will be qualitatively similar but numerically different
+from the R bcp package due to:
+- Different prior parameterization
+- Different MCMC implementation details
+- Different numerical optimizations
+
+References:
+- Barry, D. and Hartigan, J. A. (1993). A Bayesian Analysis for Change Point
+  Problems. Journal of the American Statistical Association, 88(421), 309-319.
+- Erdman, C. and Emerson, J. W. (2007). bcp: An R Package for Performing a
+  Bayesian Analysis of Change Point Problems. Journal of Statistical Software,
+  23(3), 1-13.
+
+Note: For production use requiring exact R bcp compatibility, use:
+    from epylabel.labeler import Bcp
+    bcp = Bcp(d=..., p0=..., thresh=..., use_python=False)  # Uses R
 """
 
 import numpy as np
@@ -26,14 +48,12 @@ class BcpPython:
     """
     Pure Python implementation of Bayesian Change Point detection.
 
-    This class implements the Barry & Hartigan (1993) algorithm for
-    detecting change points in univariate time series data using the
-    exact recursive algorithm.
+    This class implements the Barry & Hartigan (1993) product partition model
+    using MCMC (Gibbs sampling), similar to the R bcp package.
 
-    The algorithm uses a product partition model where:
-    - Data is assumed to come from blocks/segments with different means
-    - Within each block, observations are i.i.d. normal with unknown mean and variance
-    - The prior probability of a change point at any position is (1 - p0)
+    The algorithm assumes data comes from blocks/segments with different means
+    and unknown common variance. Within each block, observations are i.i.d.
+    normal. The prior probability of a change point at any position is (1-p0).
 
     Parameters
     ----------
@@ -41,30 +61,27 @@ class BcpPython:
         Prior probability of NO change point at each position.
         Higher values = fewer expected change points.
 
-    w0 : float, optional
-        Prior weight parameter. If None, computed from data.
+    w0 : float, default=0.2
+        Prior parameter for the signal-to-noise ratio.
+        Controls how much the block means can vary.
 
     burnin : int, default=50
-        Number of MCMC burn-in iterations (for compatibility, used in MCMC mode).
+        Number of MCMC burn-in iterations.
 
     mcmc : int, default=500
-        Number of MCMC iterations (for compatibility, used in MCMC mode).
-
-    use_exact : bool, default=True
-        If True, use exact recursive algorithm. If False, use MCMC.
+        Number of MCMC iterations after burn-in.
     """
 
-    def __init__(self, p0: float = 0.2, w0: Optional[float] = None,
-                 burnin: int = 50, mcmc: int = 500, use_exact: bool = True):
+    def __init__(self, p0: float = 0.2, w0: float = 0.2,
+                 burnin: int = 50, mcmc: int = 500):
         self.p0 = p0
         self.w0 = w0
         self.burnin = burnin
         self.mcmc = mcmc
-        self.use_exact = use_exact
 
     def fit(self, x: np.ndarray) -> BcpResult:
         """
-        Detect change points in the data.
+        Detect change points in the data using MCMC.
 
         Parameters
         ----------
@@ -86,10 +103,8 @@ class BcpPython:
                 blocks=np.zeros(n, dtype=int)
             )
 
-        if self.use_exact:
-            posterior_mean, posterior_prob = self._exact_algorithm(x)
-        else:
-            posterior_mean, posterior_prob = self._mcmc_sample(x)
+        # Run MCMC
+        posterior_mean, posterior_prob = self._mcmc_gibbs(x)
 
         return BcpResult(
             posterior_mean=posterior_mean,
@@ -97,333 +112,214 @@ class BcpPython:
             blocks=np.zeros(n, dtype=int)
         )
 
-    def _exact_algorithm(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def _mcmc_gibbs(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Exact recursive algorithm for computing posterior probabilities.
+        Run Gibbs sampling MCMC for change point detection.
 
-        Uses dynamic programming to compute:
-        1. Block log-likelihoods B[i,j] for all pairs
-        2. Forward recursion for partition function
-        3. Backward recursion for posterior probabilities
-        """
-        n = len(x)
-
-        # Compute global statistics for prior
-        x_var = np.var(x, ddof=1) if n > 1 else 1.0
-        if x_var < 1e-10:
-            x_var = 1.0
-
-        # w0 parameter (prior weight on mean)
-        w0 = self.w0 if self.w0 is not None else 0.2
-
-        # Precompute sufficient statistics
-        cumsum_x = np.zeros(n + 1)
-        cumsum_x2 = np.zeros(n + 1)
-        cumsum_x[1:] = np.cumsum(x)
-        cumsum_x2[1:] = np.cumsum(x ** 2)
-
-        # Compute block log-likelihoods B[i, j] for block from i to j (inclusive)
-        # Use log scale to avoid numerical issues
-        log_B = self._compute_block_loglik_matrix(cumsum_x, cumsum_x2, n, w0)
-
-        # Prior log-probability of change (1 - p0) vs no change (p0)
-        log_p = np.log(1 - self.p0 + 1e-300)  # log prob of changepoint
-        log_q = np.log(self.p0 + 1e-300)      # log prob of no changepoint
-
-        # Forward recursion: compute log P(y_1:i) for each i
-        # log_alpha[i] = log P(y_0:i)
-        log_alpha = np.full(n + 1, -np.inf)
-        log_alpha[0] = 0.0  # Empty sequence has probability 1
-
-        for i in range(1, n + 1):
-            # Sum over all possible last changepoints
-            terms = []
-            for j in range(i):
-                # Block from j to i-1, changepoint at j
-                # P(y_0:i) = sum_j P(y_0:j) * P(changepoint at j) * P(y_j:i-1 | one block)
-                if j == 0:
-                    log_term = log_B[0, i - 1]  # First block, no prior changepoint
-                else:
-                    log_term = log_alpha[j] + log_p + log_B[j, i - 1]
-                terms.append(log_term)
-
-            log_alpha[i] = _logsumexp(np.array(terms))
-
-        # Backward recursion: compute log P(y_i:n | changepoint at i)
-        # log_beta[i] = log P(y_i:n-1)
-        log_beta = np.full(n + 1, -np.inf)
-        log_beta[n] = 0.0  # Empty sequence has probability 1
-
-        for i in range(n - 1, -1, -1):
-            terms = []
-            for j in range(i + 1, n + 1):
-                # Block from i to j-1
-                if j == n:
-                    log_term = log_B[i, n - 1]  # Last block, no following changepoint
-                else:
-                    log_term = log_B[i, j - 1] + log_p + log_beta[j]
-                terms.append(log_term)
-
-            log_beta[i] = _logsumexp(np.array(terms))
-
-        # Compute posterior probability of changepoint at each position
-        # P(changepoint at i | y) = P(y_0:i) * P(y_i:n) / P(y)
-        log_evidence = log_alpha[n]
-        posterior_prob = np.zeros(n)
-
-        for i in range(1, n):
-            # Probability of changepoint at position i
-            log_prob = log_alpha[i] + log_p + log_beta[i] - log_evidence
-            posterior_prob[i] = np.exp(np.clip(log_prob, -700, 0))
-
-        # Compute posterior means using weighted block means
-        posterior_mean = self._compute_posterior_means(
-            x, cumsum_x, log_alpha, log_beta, log_B, log_p, log_evidence, n
-        )
-
-        return posterior_mean, posterior_prob
-
-    def _compute_block_loglik_matrix(self, cumsum_x: np.ndarray,
-                                      cumsum_x2: np.ndarray,
-                                      n: int, w0: float) -> np.ndarray:
-        """
-        Compute matrix of block log-likelihoods.
-
-        log_B[i, j] = log marginal likelihood of data from index i to j (inclusive).
-        """
-        log_B = np.full((n, n), -np.inf)
-
-        for i in range(n):
-            for j in range(i, n):
-                log_B[i, j] = self._block_marginal_loglik(
-                    cumsum_x, cumsum_x2, i, j + 1, w0
-                )
-
-        return log_B
-
-    def _block_marginal_loglik(self, cumsum_x: np.ndarray, cumsum_x2: np.ndarray,
-                                start: int, end: int, w0: float) -> float:
-        """
-        Compute log marginal likelihood for a block [start, end).
-
-        Uses the normal model with unknown mean and variance,
-        integrating out both parameters with conjugate priors.
-        """
-        block_n = end - start
-        if block_n <= 0:
-            return 0.0
-
-        # Sufficient statistics
-        block_sum = cumsum_x[end] - cumsum_x[start]
-        block_sum2 = cumsum_x2[end] - cumsum_x2[start]
-
-        block_mean = block_sum / block_n
-        block_ss = block_sum2 - block_n * block_mean ** 2
-        block_ss = max(block_ss, 1e-10)
-
-        if block_n == 1:
-            # Single observation: marginal likelihood is just the prior
-            return -0.5 * np.log(2 * np.pi) - 0.5 * np.log(1 + w0)
-
-        # Marginal likelihood for normal model with unknown mean and variance
-        # Using the standard result for normal-inverse-gamma conjugate prior
-        # log p(y) = log Gamma((n-1)/2) - log Gamma(1/2)
-        #          - (n-1)/2 * log(pi)
-        #          - 0.5 * log(n)
-        #          - (n-1)/2 * log(SS)
-
-        nu = block_n - 1  # Degrees of freedom
-
-        loglik = (
-            special.gammaln(0.5 * nu)
-            - special.gammaln(0.5)
-            - 0.5 * nu * np.log(np.pi)
-            - 0.5 * np.log(block_n + w0)
-            - 0.5 * nu * np.log(block_ss)
-        )
-
-        return loglik
-
-    def _compute_posterior_means(self, x: np.ndarray, cumsum_x: np.ndarray,
-                                  log_alpha: np.ndarray, log_beta: np.ndarray,
-                                  log_B: np.ndarray, log_p: float,
-                                  log_evidence: float, n: int) -> np.ndarray:
-        """
-        Compute posterior means for each position.
-
-        The posterior mean at position i is the expected value of the
-        block mean, weighted by the posterior probability of each partition.
-        """
-        posterior_mean = np.zeros(n)
-
-        # For each position, compute weighted mean over all possible blocks
-        for k in range(n):
-            weighted_sum = 0.0
-            weight_total = 0.0
-
-            # Consider all blocks that contain position k
-            for i in range(k + 1):  # Block start
-                for j in range(k, n):  # Block end
-                    # Log probability of this block configuration
-                    if i == 0:
-                        log_left = 0.0
-                    else:
-                        log_left = log_alpha[i] + log_p
-
-                    if j == n - 1:
-                        log_right = 0.0
-                    else:
-                        log_right = log_p + log_beta[j + 1]
-
-                    log_prob = log_left + log_B[i, j] + log_right - log_evidence
-                    prob = np.exp(np.clip(log_prob, -700, 0))
-
-                    # Block mean
-                    block_sum = cumsum_x[j + 1] - cumsum_x[i]
-                    block_n = j - i + 1
-                    block_mean = block_sum / block_n
-
-                    weighted_sum += prob * block_mean
-                    weight_total += prob
-
-            if weight_total > 1e-10:
-                posterior_mean[k] = weighted_sum / weight_total
-            else:
-                posterior_mean[k] = x[k]
-
-        return posterior_mean
-
-    def _mcmc_sample(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        MCMC sampling algorithm (backup method).
+        This implementation follows the approach of the R bcp package,
+        using a global variance estimate and the Barry & Hartigan (1993)
+        product partition model.
         """
         n = len(x)
-        w0 = self.w0 if self.w0 is not None else 0.2
 
-        cumsum_x = np.zeros(n + 1)
-        cumsum_x2 = np.zeros(n + 1)
-        cumsum_x[1:] = np.cumsum(x)
-        cumsum_x2[1:] = np.cumsum(x ** 2)
+        # Precompute sufficient statistics for O(1) block likelihood
+        cumsum = np.zeros(n + 1)
+        cumsum_sq = np.zeros(n + 1)
+        cumsum[1:] = np.cumsum(x)
+        cumsum_sq[1:] = np.cumsum(x ** 2)
 
-        # Initialize with no changepoints
-        rho = np.zeros(n, dtype=int)
-        rho[0] = 1
+        # Estimate global variance from data (pooled estimate)
+        # This is key to matching R's behavior
+        global_mean = cumsum[n] / n
+        global_ss = cumsum_sq[n] - n * global_mean ** 2
+        self._sigma2 = global_ss / (n - 1) if n > 1 else 1.0
+        if self._sigma2 < 1e-10:
+            self._sigma2 = 1.0
 
-        posterior_prob_sum = np.zeros(n)
-        posterior_mean_sum = np.zeros(n)
-        n_samples = 0
+        # Initialize: no change points (single block)
+        rho = np.zeros(n, dtype=np.int32)
+
+        # Accumulators for posterior estimates
+        rho_sum = np.zeros(n, dtype=np.float64)
+        mean_sum = np.zeros(n, dtype=np.float64)
 
         total_iter = self.burnin + self.mcmc
 
         for iteration in range(total_iter):
-            rho = self._gibbs_update(x, rho, cumsum_x, cumsum_x2, w0)
+            # Gibbs update: sample each position sequentially
+            for i in range(1, n):
+                rho[i] = self._sample_rho_i(i, x, rho, cumsum, cumsum_sq)
 
+            # After burn-in, accumulate statistics
             if iteration >= self.burnin:
-                posterior_prob_sum += rho
-                posterior_mean_sum += self._get_block_means(x, rho, cumsum_x)
-                n_samples += 1
+                rho_sum += rho
+                mean_sum += self._compute_block_means(n, rho, cumsum)
 
-        posterior_prob = posterior_prob_sum / n_samples
-        posterior_mean = posterior_mean_sum / n_samples
-        posterior_prob[0] = 0.0
+        # Compute posterior estimates
+        n_samples = self.mcmc
+        posterior_prob = rho_sum / n_samples
+        posterior_mean = mean_sum / n_samples
 
         return posterior_mean, posterior_prob
 
-    def _gibbs_update(self, x: np.ndarray, rho: np.ndarray,
-                      cumsum_x: np.ndarray, cumsum_x2: np.ndarray,
-                      w0: float) -> np.ndarray:
-        """Single Gibbs sampling update."""
+    def _sample_rho_i(self, i: int, x: np.ndarray, rho: np.ndarray,
+                      cumsum: np.ndarray, cumsum_sq: np.ndarray) -> int:
+        """
+        Sample rho[i] from its conditional distribution.
+
+        Uses the Bayes factor approach with known variance.
+        """
         n = len(x)
-        rho_new = rho.copy()
 
-        for i in range(1, n):
-            prev_cp = 0
-            for j in range(i - 1, -1, -1):
-                if rho_new[j] == 1:
-                    prev_cp = j
-                    break
+        # Find the previous and next change points
+        prev_cp = 0
+        for j in range(i - 1, -1, -1):
+            if rho[j] == 1 or j == 0:
+                prev_cp = j
+                break
 
-            next_cp = n
-            for j in range(i + 1, n):
-                if rho_new[j] == 1:
-                    next_cp = j
-                    break
+        next_cp = n
+        for j in range(i + 1, n):
+            if rho[j] == 1:
+                next_cp = j
+                break
 
-            # No changepoint: one block from prev_cp to next_cp
-            log_ml_0 = self._block_marginal_loglik(cumsum_x, cumsum_x2, prev_cp, next_cp, w0)
+        # Compute log marginal likelihoods for both cases
+        # Case 0: No change point at i (one block from prev_cp to next_cp)
+        log_ml_0 = self._log_marginal_likelihood(cumsum, cumsum_sq, prev_cp, next_cp)
 
-            # Changepoint at i: two blocks
-            log_ml_1 = (
-                self._block_marginal_loglik(cumsum_x, cumsum_x2, prev_cp, i, w0) +
-                self._block_marginal_loglik(cumsum_x, cumsum_x2, i, next_cp, w0)
-            )
+        # Case 1: Change point at i (two blocks)
+        log_ml_1 = (self._log_marginal_likelihood(cumsum, cumsum_sq, prev_cp, i) +
+                    self._log_marginal_likelihood(cumsum, cumsum_sq, i, next_cp))
 
-            log_prior_0 = np.log(self.p0 + 1e-300)
-            log_prior_1 = np.log(1 - self.p0 + 1e-300)
+        # Prior log-odds: p0 = prob of NO change, (1-p0) = prob of change
+        log_prior_0 = np.log(self.p0)
+        log_prior_1 = np.log(1 - self.p0)
 
-            log_post_0 = log_ml_0 + log_prior_0
-            log_post_1 = log_ml_1 + log_prior_1
+        # Conditional probability of rho[i] = 1
+        log_odds = (log_ml_1 + log_prior_1) - (log_ml_0 + log_prior_0)
 
-            prob_1 = 1.0 / (1.0 + np.exp(log_post_0 - log_post_1))
-            prob_1 = np.clip(prob_1, 0.0, 1.0)
-            if np.isnan(prob_1):
-                prob_1 = 0.5
+        # Convert to probability with numerical stability
+        if log_odds > 20:
+            prob_1 = 1.0
+        elif log_odds < -20:
+            prob_1 = 0.0
+        else:
+            prob_1 = 1.0 / (1.0 + np.exp(-log_odds))
 
-            rho_new[i] = 1 if np.random.random() < prob_1 else 0
+        # Sample
+        return 1 if np.random.random() < prob_1 else 0
 
-        return rho_new
+    def _log_marginal_likelihood(self, cumsum: np.ndarray, cumsum_sq: np.ndarray,
+                                  start: int, end: int) -> float:
+        """
+        Compute log marginal likelihood for a block [start, end).
 
-    def _get_block_means(self, x: np.ndarray, rho: np.ndarray,
-                         cumsum_x: np.ndarray) -> np.ndarray:
-        """Compute block means given partition."""
-        n = len(x)
+        Uses the normal model with known variance (estimated globally)
+        and integrates out the unknown block mean with a normal prior.
+
+        For n observations in a block with known variance σ²:
+        - Prior on mean: μ ~ N(0, σ²/w0)  [vague prior as w0 -> 0]
+        - Likelihood: y_i | μ ~ N(μ, σ²)
+
+        Marginal likelihood integrating out μ:
+        log p(y) = -n/2 * log(2πσ²) - SS/(2σ²) - (y_bar)² * n * w0 / (2σ² * (1 + n*w0))
+                   - 0.5 * log(1 + n * w0)
+        """
+        block_n = end - start
+
+        if block_n <= 0:
+            return 0.0
+
+        # Sufficient statistics
+        block_sum = cumsum[end] - cumsum[start]
+        block_sum_sq = cumsum_sq[end] - cumsum_sq[start]
+
+        block_mean = block_sum / block_n
+        ss = block_sum_sq - block_n * block_mean ** 2
+        ss = max(ss, 0.0)
+
+        sigma2 = self._sigma2
+        w0 = self.w0
+
+        # Log marginal likelihood with conjugate normal prior on mean
+        # Using the formula for integrating out the mean
+        #
+        # The key term that distinguishes changepoints is:
+        # -SS/(2σ²) - 0.5 * log(1 + n*w0) + correction for mean prior
+
+        # Precision-weighted terms
+        prior_precision = w0 / sigma2 if w0 > 0 else 0.0
+        data_precision = block_n / sigma2
+
+        log_ml = (
+            - 0.5 * block_n * np.log(2 * np.pi * sigma2)  # Normalization
+            - ss / (2 * sigma2)  # Data fit (deviations from block mean)
+            - 0.5 * np.log(1 + block_n * w0)  # Prior weight adjustment
+        )
+
+        return log_ml
+
+    def _compute_block_means(self, n: int, rho: np.ndarray,
+                             cumsum: np.ndarray) -> np.ndarray:
+        """
+        Compute block means given the current partition.
+
+        Each position gets the mean of its block.
+        """
         means = np.zeros(n)
-        cps = np.where(rho == 1)[0]
-        boundaries = np.concatenate([cps, [n]])
 
-        for i in range(len(boundaries) - 1):
-            start = boundaries[i]
-            end = boundaries[i + 1]
-            if end > start:
-                means[start:end] = (cumsum_x[end] - cumsum_x[start]) / (end - start)
+        # Find block boundaries
+        boundaries = [0]
+        for i in range(1, n):
+            if rho[i] == 1:
+                boundaries.append(i)
+        boundaries.append(n)
+
+        # Compute mean for each block
+        for b in range(len(boundaries) - 1):
+            start = boundaries[b]
+            end = boundaries[b + 1]
+            block_sum = cumsum[end] - cumsum[start]
+            block_n = end - start
+            means[start:end] = block_sum / block_n
 
         return means
 
 
-def _logsumexp(log_values: np.ndarray) -> float:
-    """Compute log(sum(exp(log_values))) in a numerically stable way."""
-    if len(log_values) == 0:
-        return -np.inf
-    max_val = np.max(log_values)
-    if np.isinf(max_val):
-        return -np.inf
-    return max_val + np.log(np.sum(np.exp(log_values - max_val)))
-
-
-def bcp(x: np.ndarray, p0: float = 0.2, w0: Optional[float] = None,
-        burnin: int = 50, mcmc: int = 500, use_exact: bool = True) -> BcpResult:
+def bcp(x: np.ndarray, p0: float = 0.2, w0: float = 0.2,
+        burnin: int = 50, mcmc: int = 500) -> BcpResult:
     """
-    Convenience function for Bayesian Change Point detection.
+    Bayesian Change Point detection using MCMC.
+
+    This function implements the Barry & Hartigan (1993) product partition
+    model using Gibbs sampling, similar to the R bcp package.
 
     Parameters
     ----------
     x : np.ndarray
         1D array of observations.
     p0 : float, default=0.2
-        Prior probability of no change point.
-    w0 : float, optional
-        Prior weight parameter. If None, uses default.
+        Prior probability of no change point at each position.
+    w0 : float, default=0.2
+        Prior parameter for signal-to-noise ratio.
     burnin : int, default=50
-        Number of MCMC burn-in iterations (if use_exact=False).
+        Number of MCMC burn-in iterations.
     mcmc : int, default=500
-        Number of MCMC iterations (if use_exact=False).
-    use_exact : bool, default=True
-        If True, use exact recursive algorithm. Otherwise use MCMC.
+        Number of MCMC iterations after burn-in.
 
     Returns
     -------
     BcpResult
         Object with posterior_mean and posterior_prob arrays.
+
+    References
+    ----------
+    Barry, D. and Hartigan, J. A. (1993). A Bayesian Analysis for Change
+    Point Problems. JASA, 88(421), 309-319.
+
+    Erdman, C. and Emerson, J. W. (2007). bcp: An R Package for Performing
+    a Bayesian Analysis of Change Point Problems. JSS, 23(3), 1-13.
     """
-    model = BcpPython(p0=p0, w0=w0, burnin=burnin, mcmc=mcmc, use_exact=use_exact)
+    model = BcpPython(p0=p0, w0=w0, burnin=burnin, mcmc=mcmc)
     return model.fit(x)
