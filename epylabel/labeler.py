@@ -265,7 +265,7 @@ class Shapelet(Transformation):
 class Bcp(Transformation):
     """
     Transformation class for applying a Bayesian changepoint detection transformation
-    using the bcp library.
+    using the bcp library (R) or pure Python fallback.
 
     This class inherits from the Transformation interface and provides methods to
     apply a Bayesian changepoint detection transformation on the input data.
@@ -274,6 +274,7 @@ class Bcp(Transformation):
         d (int): Maximum number of changepoints to consider.
         p0 (float): Prior probability of no changepoint.
         thresh (float): Threshold value for the transformation.
+        use_python (bool): If True, use pure Python implementation instead of R.
 
     Methods:
         changepoints(x: np.ndarray, d: int, p0: float) -> np.ndarray:
@@ -282,7 +283,7 @@ class Bcp(Transformation):
             Applies the Bayesian changepoint detection transformation on the input data.
     """
 
-    def __init__(self, d: int, p0: float, thresh: float):
+    def __init__(self, d: int, p0: float, thresh: float, use_python: bool = False):
         """
         Initializes a Bcp object.
 
@@ -292,39 +293,53 @@ class Bcp(Transformation):
         :type p0: float
         :param thresh: Threshold value for the transformation.
         :type thresh: float
+        :param use_python: If True, use pure Python implementation instead of R.
+        :type use_python: bool
 
-        :raises ImportError: If rpy2 is not installed or R is not available.
+        :raises ImportError: If rpy2 is not installed or R is not available (and use_python=False).
         """
-        # Lazy import of rpy2 to make R dependency optional
-        try:
-            import rpy2.robjects as robjects
-            import rpy2.robjects.packages as rpackages
-        except ImportError as e:
-            raise ImportError(
-                "The Bcp algorithm requires rpy2 and R to be installed. "
-                "Please install R (https://www.r-project.org/) and then run: "
-                "pip install rpy2\n"
-                "Alternatively, use Python-only algorithms like Shapelet or WaveFinder."
-            ) from e
-        except (RuntimeError, ValueError, OSError) as e:
-            # rpy2 is installed but R is missing or misconfigured
-            raise RuntimeError(
-                f"rpy2 is installed but R is not available or misconfigured: {e}\n"
-                "Please install R (https://www.r-project.org/) and ensure it's in your PATH.\n"
-                "Alternatively, use Python-only algorithms like Shapelet or WaveFinder."
-            ) from e
-
-        self._robjects = robjects
-        self._rpackages = rpackages
-
-        try:
-            self.bcp = rpackages.importr("bcp")
-        except rpackages.PackageNotInstalledError:
-            robjects.r("install.packages('bcp')")
-            self.bcp = rpackages.importr("bcp")
         self.p0 = p0
         self.d = d
         self.thresh = thresh
+        self.use_python = use_python
+        self._r_available = False
+
+        if use_python:
+            # Use pure Python implementation
+            from epylabel.bcp_python import BcpPython
+            self._bcp_python = BcpPython(p0=p0)
+        else:
+            # Try to use R implementation
+            try:
+                import rpy2.robjects as robjects
+                import rpy2.robjects.packages as rpackages
+
+                self._robjects = robjects
+                self._rpackages = rpackages
+
+                try:
+                    self.bcp = rpackages.importr("bcp")
+                except rpackages.PackageNotInstalledError:
+                    robjects.r("install.packages('bcp')")
+                    self.bcp = rpackages.importr("bcp")
+
+                self._r_available = True
+
+            except ImportError as e:
+                raise ImportError(
+                    "The Bcp algorithm requires rpy2 and R to be installed. "
+                    "Please install R (https://www.r-project.org/) and then run: "
+                    "pip install rpy2\n"
+                    "Alternatively, use use_python=True for pure Python implementation, "
+                    "or use Python-only algorithms like Shapelet or WaveFinder."
+                ) from e
+            except (RuntimeError, ValueError, OSError) as e:
+                raise RuntimeError(
+                    f"rpy2 is installed but R is not available or misconfigured: {e}\n"
+                    "Please install R (https://www.r-project.org/) and ensure it's in your PATH.\n"
+                    "Alternatively, use use_python=True for pure Python implementation, "
+                    "or use Python-only algorithms like Shapelet or WaveFinder."
+                ) from e
 
     def changepoints(self, x: np.ndarray, d: int, p0: float) -> np.ndarray:
         """
@@ -336,12 +351,18 @@ class Bcp(Transformation):
         :type d: int
         :param p0: Prior probability of no changepoint.
         :type p0: float
-        :return: Array of detected changepoints.
+        :return: Array of detected changepoints (posterior mean).
         :rtype: np.ndarray
         """
-        x_r = self._robjects.FloatVector(x.values)
-        out = self.bcp.bcp(x_r, d=d, p0=p0)
-        return np.array(out.rx2["posterior.mean"]).flatten()
+        if self.use_python:
+            # Use Python implementation
+            result = self._bcp_python.fit(x.values)
+            return result.posterior_mean
+        else:
+            # Use R implementation
+            x_r = self._robjects.FloatVector(x.values)
+            out = self.bcp.bcp(x_r, d=d, p0=p0)
+            return np.array(out.rx2["posterior.mean"]).flatten()
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
         """
