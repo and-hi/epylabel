@@ -1,0 +1,17 @@
+{
+  "algorithm": "bcp",
+  "dataset": "simple_wave",
+  "params": {
+    "d": 500,
+    "p0": 0.01,
+    "thresh": 0.5
+  },
+  "generated_at": "2026-02-01T12:54:31.927483",
+  "shape": [
+    200,
+    1
+  ],
+  "columns": [
+    "0"
+  ]
+}

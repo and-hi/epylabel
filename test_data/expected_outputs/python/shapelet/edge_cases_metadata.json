@@ -1,0 +1,22 @@
+{
+  "algorithm": "shapelet",
+  "dataset": "edge_cases",
+  "params": {
+    "n_days": 7,
+    "x_max": 3,
+    "thresh": 0.8
+  },
+  "generated_at": "2026-02-01T03:18:25.570959",
+  "shape": [
+    100,
+    6
+  ],
+  "columns": [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "algorithm": "wavefinder",
+  "dataset": "real_covid_sample",
+  "params": {
+    "abs_prominence_threshold": 5,
+    "prominence_height_threshold": 0.01,
+    "t_sep_a": 35
+  },
+  "generated_at": "2026-02-01T03:18:30.144551",
+  "shape": [
+    1000,
+    1
+  ],
+  "columns": [
+    "0"
+  ]
+}

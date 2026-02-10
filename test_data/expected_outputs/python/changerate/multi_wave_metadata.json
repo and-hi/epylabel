@@ -1,0 +1,16 @@
+{
+  "algorithm": "changerate",
+  "dataset": "multi_wave",
+  "params": {
+    "n_days": 7,
+    "changerate_ceiling": 6
+  },
+  "generated_at": "2026-02-01T03:18:24.257230",
+  "shape": [
+    500,
+    1
+  ],
+  "columns": [
+    "0"
+  ]
+}

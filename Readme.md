@@ -81,13 +81,67 @@ conda activate epylabel
 
 **Warning**: This repo uses rpy2, a Python library that enables running R code and libraries in Python. As of now, this library is not supported for Windows and this repo may not work for you if you use Windows.
 
-### Reproduce Labels
+### Quick Start (Recommended)
 
-To reproduce the labels presented in the manuscript run ``python paper_labels.py`` after the appropriate conda environment has been activated. Note, you need to navigate to the folder containing this script for it to work.
+The easiest way to reproduce all paper results is using the unified `reproduce_paper.py` script:
 
-### Generate Figures
+```bash
+# Check dependencies first
+python reproduce_paper.py --check
 
-You can also reproduce the figures from the manuscript using ``python paper_plots.py``
+# Generate everything (labels + plots)
+python reproduce_paper.py
+
+# Or run steps separately:
+python reproduce_paper.py --labels  # Generate labels only
+python reproduce_paper.py --plots   # Generate plots only (requires labels)
+```
+
+Alternatively, use the Makefile:
+
+```bash
+make setup    # Install dependencies (if needed)
+make all      # Generate labels and plots
+make labels   # Generate labels only
+make plots    # Generate plots only
+make clean    # Remove generated output
+```
+
+### Alternative: Manual Dependency Setup
+
+If you don't use conda, you can set up dependencies manually:
+
+```bash
+# Install Python dependencies
+pip install pandas numpy scipy scikit-learn matplotlib seaborn geopandas pyarrow fastparquet tqdm plotly dash rpy2
+
+# Install R and the bcp package
+# On Ubuntu/Debian:
+sudo apt-get install r-base r-base-dev
+R -e 'install.packages(c("Rcpp", "RcppArmadillo"), repos="https://cloud.r-project.org/")'
+R -e 'install.packages("https://cran.r-project.org/src/contrib/Archive/bcp/bcp_4.0.3.tar.gz", repos=NULL, type="source")'
+```
+
+Or use the provided setup script:
+
+```bash
+chmod +x setup_dependencies.sh
+./setup_dependencies.sh
+```
+
+### Original Scripts (Legacy)
+
+The original scripts are still available:
+
+```bash
+# Reproduce labels
+python paper_labels.py
+
+# Generate figures
+python paper_plots.py
+```
+
+Note: The original `paper_plots.py` requires a GUI backend (Qt5). For headless environments, use `reproduce_paper.py` instead.
 
 ### Generating Docs
 

@@ -1,0 +1,20 @@
+{
+  "algorithm": "changerate",
+  "dataset": "exponential_growth_cases",
+  "params": {
+    "n_days": 7,
+    "changerate_ceiling": 6
+  },
+  "generated_at": "2026-02-01T03:18:24.229997",
+  "shape": [
+    100,
+    5
+  ],
+  "columns": [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4"
+  ]
+}

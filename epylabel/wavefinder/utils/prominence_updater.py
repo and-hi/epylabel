@@ -65,13 +65,13 @@ class ProminenceUpdater:
             makeframe(data, peak, peak_properties, trough, trough_properties): A DataFrame containing the peaks and troughs found in data, along with their locations, prominences and values.
         """
 
-        peaks = data.loc[peak]
+        peaks = data.loc[peak].copy()
         peaks["prominence"] = peak_properties["prominences"]
-        peaks["peak_ind"].values[:] = 1
+        peaks["peak_ind"] = 1
 
-        troughs = data.loc[trough]
+        troughs = data.loc[trough].copy()
         troughs["prominence"] = trough_properties["prominences"]
-        troughs["peak_ind"].values[:] = 0
+        troughs["peak_ind"] = 0
 
         results = pd.concat([peaks, troughs])
 

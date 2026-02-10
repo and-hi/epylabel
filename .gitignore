@@ -1,5 +1,6 @@
-# Ignore parquet files
+# Ignore parquet files (except test_data)
 *.parquet
+!test_data/**/*.parquet
 
 # Ignore CSV files
 *.csv
@@ -18,3 +19,6 @@ docs/build/
 
 # Ignore notebooks
 notebooks/
+
+# Ignore generated output
+output/

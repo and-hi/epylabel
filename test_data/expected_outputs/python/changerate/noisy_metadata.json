@@ -1,0 +1,16 @@
+{
+  "algorithm": "changerate",
+  "dataset": "noisy",
+  "params": {
+    "n_days": 7,
+    "changerate_ceiling": 6
+  },
+  "generated_at": "2026-02-01T03:18:24.243081",
+  "shape": [
+    300,
+    1
+  ],
+  "columns": [
+    "0"
+  ]
+}

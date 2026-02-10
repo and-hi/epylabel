@@ -1,0 +1,18 @@
+{
+  "algorithm": "changerate",
+  "dataset": "ensemble_test_cases",
+  "params": {
+    "n_days": 7,
+    "changerate_ceiling": 6
+  },
+  "generated_at": "2026-02-01T03:18:24.270444",
+  "shape": [
+    200,
+    3
+  ],
+  "columns": [
+    "0",
+    "1",
+    "2"
+  ]
+}
